@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=index.html">
+    <title>法務局 地図XML（公図）ビューア</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Noto+Sans+JP:wght@300;400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+    <!-- Load JSZip for client-side zip file parsing -->
+    <script src="js/jszip.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <span class="logo-icon">🗺️</span>
+                    <h1>公図XMLビューア</h1>
+                </div>
+            </div>
+
+            <!-- File Upload / Selection Section -->
+            <section class="panel upload-panel">
+                <h2>📁 ファイル読み込み</h2>
+                <div class="drop-zone" id="dropZone">
+                    <p>ZIP または XML をドラッグ＆ドロップ</p>
+                    <span>または</span>
+                    <label class="file-label">
+                        ファイルを選択
+                        <input type="file" id="fileInput" accept=".zip,.xml" style="display: none;">
+                    </label>
+                </div>
+                <!-- Map Sheet Selector (visible when multiple XMLs are loaded) -->
+                <div class="map-sheet-select-container" id="mapSheetSelectContainer" style="display: none; margin-top: 14px;">
+                    <h3 style="font-size: 11px; color: var(--text-secondary); margin-bottom: 6px;">🗺️ 図幅（マップシート）の選択:</h3>
+                    <select id="mapSheetSelect" style="width: 100%; padding: 8px; background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-family: var(--font-family); font-size: 12px;"></select>
+                </div>
+                <!-- Server Data folder list -->
+                <div class="server-files" id="serverFilesContainer">
+                    <h3>data/ フォルダ内の検出ファイル:</h3>
+                    <ul class="file-list" id="serverFileList">
+                        <li class="loading">スキャン中...</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- Search and Filter Section -->
+            <section class="panel search-panel">
+                <h2>🔍 地番検索</h2>
+                <div class="search-box">
+                    <input type="text" id="searchInput" placeholder="地番を入力して検索 (例: 101)">
+                    <button id="clearSearchBtn">×</button>
+                </div>
+            </section>
+
+            <!-- Parcel List Section -->
+            <section class="panel list-panel">
+                <div class="panel-header">
+                    <h2>📋 筆（ランドマーク）一覧</h2>
+                    <span class="badge" id="parcelCountBadge">0</span>
+                </div>
+                <div class="list-container">
+                    <ul class="parcel-list" id="parcelList">
+                        <li class="empty-msg">ファイルが読み込まれていません</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- Detail Info Panel -->
+            <section class="panel detail-panel" id="detailPanel">
+                <h2>ℹ️ 筆（土地）の詳細情報</h2>
+                <div class="detail-content" id="detailContent">
+                    <p class="empty-msg" style="padding: 10px 0;">筆を選択すると詳細情報が表示されます</p>
+                </div>
+            </section>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Header bar with map info -->
+            <header class="map-header">
+                <div class="map-info">
+                    <h2 id="mapTitle">地図が選択されていません</h2>
+                    <div class="map-metadata">
+                        <span class="meta-tag" id="metaCrs">座標系: --</span>
+                        <span class="meta-tag" id="metaCity">市区町村: --</span>
+                        <span class="meta-tag" id="metaScale">縮尺分母: --</span>
+                    </div>
+                </div>
+                <div class="header-actions" style="display: flex; gap: 8px;">
+                    <button id="printModeBtn" class="btn btn-secondary">🖨️ 印刷用(白)</button>
+                    <button id="resetViewBtn" class="btn btn-secondary">🌐 フィット表示</button>
+                </div>
+            </header>
+
+            <!-- Map Viewport -->
+            <div class="viewport-container" id="viewportContainer">
+                <canvas id="mapCanvas"></canvas>
+                
+                <!-- Loading overlay -->
+                <div class="loading-overlay" id="loadingOverlay" style="display: none;">
+                    <div class="loading-spinner"></div>
+                    <div class="loading-message" id="loadingMessage">ファイルを処理中...</div>
+                </div>
+                
+                <!-- Legend overlay -->
+                <div class="legend-overlay" id="legendOverlay" style="display: none;">
+                    <h3>凡例 (丁目)</h3>
+                    <ul class="legend-list" id="legendList"></ul>
+                </div>
+                
+                <!-- Zoom/Pan controls overlay -->
+                <div class="controls-overlay">
+                    <button id="zoomInBtn" title="拡大">+</button>
+                    <button id="zoomOutBtn" title="縮小">−</button>
+                    <button id="resetViewBtnOverlay" title="中心に戻す">🎯</button>
+                </div>
+
+                <!-- Hover detail tooltip -->
+                <div class="hover-tooltip" id="hoverTooltip"></div>
+            </div>
+
+            <!-- Bottom Status Bar -->
+            <footer class="status-bar">
+                <div class="status-item" id="statusCoords">X: --, Y: --</div>
+                <div class="status-item" id="statusHovered">選択中: なし</div>
+                <div class="status-item" id="statusScale">倍率: 100%</div>
+            </footer>
+        </main>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
