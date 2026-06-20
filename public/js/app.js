@@ -463,9 +463,20 @@ function parseMojXml(xmlText) {
             }
         }
         
+        const cleanExterior = cleanDuplicates(exteriorCoords);
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+        cleanExterior.forEach(pt => {
+            if (pt.x < minX) minX = pt.x;
+            if (pt.x > maxX) maxX = pt.x;
+            if (pt.y < minY) minY = pt.y;
+            if (pt.y > maxY) maxY = pt.y;
+        });
+
         surfaces[id] = {
-            exterior: cleanDuplicates(exteriorCoords),
-            interiors: interiorCoordsList.map(cleanDuplicates)
+            exterior: cleanExterior,
+            interiors: interiorCoordsList.map(cleanDuplicates),
+            bbox: { minX, maxX, minY, maxY }
         };
     }
     
@@ -546,6 +557,16 @@ function parseMojXml(xmlText) {
                 chome = match ? match[0] : 'その他';
             }
             
+            // Precompute centroid
+            const geom = surfaces[shapeRef];
+            let sumX = 0, sumY = 0;
+            geom.exterior.forEach(pt => {
+                sumX += pt.x;
+                sumY += pt.y;
+            });
+            const centroidX = sumX / geom.exterior.length;
+            const centroidY = sumY / geom.exterior.length;
+            
             tempParcels.push({
                 id: id || `F-${i}`,
                 chiban: chiban,
@@ -553,7 +574,8 @@ function parseMojXml(xmlText) {
                 accuracy: accuracy,
                 type: typeValue,
                 chome: chome,
-                geometry: surfaces[shapeRef],
+                geometry: geom,
+                centroid: { x: centroidX, y: centroidY },
                 ooaza: ooaza,
                 ooazaCode: ooazaCode,
                 chomeCode: chomeCode,
@@ -601,12 +623,13 @@ function calculateBounds() {
     let minY = Infinity, maxY = -Infinity;
     
     parcels.forEach(p => {
-        p.geometry.exterior.forEach(pt => {
-            if (pt.x < minX) minX = pt.x;
-            if (pt.x > maxX) maxX = pt.x;
-            if (pt.y < minY) minY = pt.y;
-            if (pt.y > maxY) maxY = pt.y;
-        });
+        const bbox = p.geometry.bbox;
+        if (bbox) {
+            if (bbox.minX < minX) minX = bbox.minX;
+            if (bbox.maxX > maxX) maxX = bbox.maxX;
+            if (bbox.minY < minY) minY = bbox.minY;
+            if (bbox.maxY > maxY) maxY = bbox.maxY;
+        }
     });
     
     if (minX === Infinity) {
@@ -670,6 +693,19 @@ function drawMap() {
         const isSelected = p.id === selectedParcelId;
         const isHovered = p.id === hoveredParcelId;
         
+        // Frustum culling check
+        const bbox = p.geometry.bbox;
+        if (bbox && !isSelected && !isHovered) {
+            const minX_screen = (bbox.minY - bounds.minY) * viewState.zoom + viewState.offsetX;
+            const maxX_screen = (bbox.maxY - bounds.minY) * viewState.zoom + viewState.offsetX;
+            const minY_screen = (bounds.maxX - bbox.maxX) * viewState.zoom + viewState.offsetY;
+            const maxY_screen = (bounds.maxX - bbox.minX) * viewState.zoom + viewState.offsetY;
+            
+            if (maxX_screen < 0 || minX_screen > mapCanvas.width || maxY_screen < 0 || minY_screen > mapCanvas.height) {
+                return; // Off-screen, skip drawing this parcel
+            }
+        }
+        
         ctx.beginPath();
         p.geometry.exterior.forEach((pt, index) => {
             const sx = (pt.y - bounds.minY) * viewState.zoom + viewState.offsetX;
@@ -718,17 +754,8 @@ function drawMap() {
         ctx.textBaseline = 'middle';
         
         parcels.forEach(p => {
-            // Find centroid (simple average of exterior points for text label)
-            let sumX = 0, sumY = 0;
-            p.geometry.exterior.forEach(pt => {
-                sumX += pt.x;
-                sumY += pt.y;
-            });
-            const centX = sumY / p.geometry.exterior.length;
-            const centY = sumX / p.geometry.exterior.length;
-            
-            const sx = (centX - bounds.minY) * viewState.zoom + viewState.offsetX;
-            const sy = (bounds.maxX - centY) * viewState.zoom + viewState.offsetY;
+            const sx = (p.centroid.y - bounds.minY) * viewState.zoom + viewState.offsetX;
+            const sy = (bounds.maxX - p.centroid.x) * viewState.zoom + viewState.offsetY;
             
             // Draw text if inside canvas bounds
             if (sx > 0 && sx < mapCanvas.width && sy > 0 && sy < mapCanvas.height) {
@@ -784,6 +811,8 @@ function renderParcelList() {
         return;
     }
     
+    const fragment = document.createDocumentFragment();
+    
     filteredParcels.forEach(p => {
         const li = document.createElement('li');
         li.dataset.id = p.id;
@@ -811,8 +840,10 @@ function renderParcelList() {
             drawMap();
         });
         
-        parcelList.appendChild(li);
+        fragment.appendChild(li);
     });
+    
+    parcelList.appendChild(fragment);
 }
 
 // Selection handling
@@ -836,19 +867,10 @@ function selectParcel(id, zoomTo = false) {
         updateDetailPanel(p);
         
         if (zoomTo) {
-            // Calculate center of parcel
-            let sumX = 0, sumY = 0;
-            p.geometry.exterior.forEach(pt => {
-                sumX += pt.x;
-                sumY += pt.y;
-            });
-            const centX = sumY / p.geometry.exterior.length;
-            const centY = sumX / p.geometry.exterior.length;
-            
             // Set scale to a reasonable zoomed-in view
             viewState.zoom = Math.max(viewState.zoom, 2.5); // Ensure zoomed in
-            viewState.offsetX = mapCanvas.width / 2 - (centX - bounds.minY) * viewState.zoom;
-            viewState.offsetY = mapCanvas.height / 2 - (bounds.maxX - centY) * viewState.zoom;
+            viewState.offsetX = mapCanvas.width / 2 - (p.centroid.y - bounds.minY) * viewState.zoom;
+            viewState.offsetY = mapCanvas.height / 2 - (bounds.maxX - p.centroid.x) * viewState.zoom;
             updateStatusScale();
         }
     } else {
@@ -1009,6 +1031,13 @@ function findParcelAt(x, y) {
     // Traverse backwards so top/later items are prioritized
     for (let i = parcels.length - 1; i >= 0; i--) {
         const p = parcels[i];
+        const bbox = p.geometry.bbox;
+        
+        // Fast AABB bounding box pre-filter
+        if (bbox && (x < bbox.minX || x > bbox.maxX || y < bbox.minY || y > bbox.maxY)) {
+            continue;
+        }
+        
         if (isPointInPolygon({ x, y }, p.geometry.exterior)) {
             // Also check that it's not inside any interior hole
             let insideHole = false;
