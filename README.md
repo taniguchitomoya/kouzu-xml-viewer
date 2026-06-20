@@ -43,19 +43,18 @@
 
 ```text
 .
-├── initial_prompts/        # 開発初期のAI指示書フォルダ
-├── prompts/                # 追加の指示書フォルダ
-├── public/                 # Webサーバー公開用ディレクトリ
+├── public/                  # Webサーバー公開用ディレクトリ
 │   ├── css/
-│   │   └── style.css       # アプリケーションのスタイルシート
-│   ├── data/               # 地図データ格納ディレクトリ（.gitignore対象）
+│   │   └── style.css        # アプリケーションのスタイルシート
+│   ├── data/                # 地図データ格納ディレクトリ（.gitignore対象）
 │   ├── js/
-│   │   ├── app.js          # 地図のパースおよび描画、キャッシュロジック (zip.js対応)
-│   │   └── zip.min.js      # ZIPの解凍・HTTP Range Requests用のライブラリ (監査済)
-│   └── index.html          # ビューアのメインHTML画面
-├── README.md               # 本ドキュメント
-├── start.sh                # ローカルWebサーバー起動用スクリプト
-└── .gitignore              # バージョン管理除外設定
+│   │   ├── app.js           # 地図XMLのパースおよび描画ロジック（zip.js・キャッシュ対応）
+│   │   └── zip.min.js       # ZIPファイル解凍・部分読み込み用ライブラリ（監査済）
+│   └── index.html           # ビューアのメインHTML画面
+├── initial_prompts/         # 開発初期のAIへの指示書テキスト（履歴管理用）
+├── prompts/                 # 追加の指示書フォルダ（高速化提案など）
+├── start.sh                 # ローカルサーバー起動用のシェルスクリプト
+└── README.md                # 本ドキュメント
 ```
 
 ## 🏎️ 高速化とキャッシュ機構
