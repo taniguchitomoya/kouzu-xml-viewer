@@ -93,5 +93,3 @@
   - **ライセンス**: BSD 3-Clause License
   - 著作権表示: Copyright (c) 2013, Gildas Lormeau. All rights reserved.
   - BSD 3-Clauseの規定に基づき、本ソフトウェアの使用・配布にあたっては著作権表示および免責事項の保持が求められます。
-- **Google Fonts (Outfit / Noto Sans JP)**
-  - **ライセンス**: SIL Open Font License 1.1
