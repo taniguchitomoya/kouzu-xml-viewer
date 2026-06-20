@@ -106,10 +106,15 @@ window.addEventListener('DOMContentLoaded', () => {
     mapSheetSelect.addEventListener('change', () => {
         const index = parseInt(mapSheetSelect.value);
         if (currentZipXmls[index]) {
-            showLoading('XMLパース中...');
-            setTimeout(() => { // small delay to let UI update loading state
+            showLoading('XML展開＆パース中...');
+            setTimeout(async () => { // small delay to let UI update loading state
                 try {
-                    parseMojXml(currentZipXmls[index].text);
+                    let xmlText = currentZipXmls[index].text;
+                    if (!xmlText) {
+                        xmlText = await currentZipXmls[index].file.async('text');
+                        currentZipXmls[index].text = xmlText; // Cache for future switches
+                    }
+                    parseMojXml(xmlText);
                 } catch (err) {
                     alert('XML読み込みエラー: ' + err.message);
                     hideLoading();
@@ -302,8 +307,8 @@ async function parseZipContents(zip) {
         
         return {
             name: `${mapName} (${baseName})`,
-            file: fileEntry.file,
-            text: xmlText
+            file: fileEntry.file
+            // text is not kept in memory to save RAM
         };
     });
     
@@ -327,10 +332,12 @@ async function parseZipContents(zip) {
     }
     
     // Load the first map sheet initially
-    showLoading('XMLパース中...');
-    setTimeout(() => {
+    showLoading('XML展開＆パース中...');
+    setTimeout(async () => {
         try {
-            parseMojXml(currentZipXmls[0].text);
+            const xmlText = await currentZipXmls[0].file.async('text');
+            currentZipXmls[0].text = xmlText; // Cache first map
+            parseMojXml(xmlText);
         } catch (err) {
             alert('XMLパースエラー: ' + err.message);
             hideLoading();
@@ -1100,15 +1107,21 @@ function setupFileEvents() {
 
 // 9. Search Bar setup
 function setupSearch() {
+    let debounceTimer;
     searchInput.addEventListener('input', () => {
         const query = searchInput.value.trim();
         clearSearchBtn.style.display = query ? 'block' : 'none';
-        renderParcelList();
+        
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            renderParcelList();
+        }, 150);
     });
     
     clearSearchBtn.addEventListener('click', () => {
         searchInput.value = '';
         clearSearchBtn.style.display = 'none';
+        clearTimeout(debounceTimer);
         renderParcelList();
     });
 }
