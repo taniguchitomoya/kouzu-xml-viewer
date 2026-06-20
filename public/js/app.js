@@ -6,6 +6,15 @@ let selectedParcelId = null;
 let hoveredParcelId = null;
 let currentZipXmls = []; // Array of XML files extracted from loaded ZIP
 let activeLegendChome = null; // Filter state for chome highlighting
+let currentZipReader = null;
+let currentNestedZipReaders = [];
+
+// Configure zip.js to run in the main thread (no workers) to prevent worker setup failures.
+if (window.zip) {
+    zip.configure({
+        useWebWorkers: false
+    });
+}
 
 // Map viewport configuration
 let bounds = { minX: 0, maxX: 0, minY: 0, maxY: 0 };
@@ -111,7 +120,7 @@ window.addEventListener('DOMContentLoaded', () => {
                 try {
                     let xmlText = currentZipXmls[index].text;
                     if (!xmlText) {
-                        xmlText = await currentZipXmls[index].file.async('text');
+                        xmlText = await currentZipXmls[index].entry.getData(new zip.TextWriter());
                         currentZipXmls[index].text = xmlText; // Cache for future switches
                     }
                     parseMojXml(xmlText);
@@ -211,19 +220,115 @@ function renderFileList() {
     });
 }
 
-// 2. File Loading & Zip Parsing (Browser-side using JSZip)
+// 2. File Loading & Zip Parsing (Browser-side using zip.js with range requests support)
+// LocalStorage Caching for Region Names
+function getCacheKey(fileOrUrl) {
+    if (typeof fileOrUrl === 'string') {
+        return 'url:' + fileOrUrl;
+    } else if (fileOrUrl instanceof File) {
+        return 'file:' + fileOrUrl.name + ':' + fileOrUrl.size + ':' + fileOrUrl.lastModified;
+    }
+    return null;
+}
+
+function getCachedMapNames(fileOrUrl) {
+    const key = getCacheKey(fileOrUrl);
+    if (!key) return null;
+    try {
+        const cached = localStorage.getItem('kouzu_map_names_cache_' + key);
+        if (cached) {
+            return JSON.parse(cached);
+        }
+    } catch (e) {
+        console.warn('Failed to read from localStorage cache:', e);
+    }
+    return null;
+}
+
+function setCachedMapNames(fileOrUrl, data) {
+    const key = getCacheKey(fileOrUrl);
+    if (!key) return;
+    try {
+        localStorage.setItem('kouzu_map_names_cache_' + key, JSON.stringify(data));
+    } catch (e) {
+        console.warn('Failed to write to localStorage cache:', e);
+        if (e.name === 'QuotaExceededError') {
+            clearOldCaches();
+            try {
+                localStorage.setItem('kouzu_map_names_cache_' + key, JSON.stringify(data));
+            } catch (ex) {
+                console.warn('Failed to write to localStorage even after clearing:', ex);
+            }
+        }
+    }
+}
+
+function clearOldCaches() {
+    try {
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith('kouzu_map_names_cache_')) {
+                localStorage.removeItem(key);
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to clear old caches:', e);
+    }
+}
+
+async function closeCurrentZipReaders() {
+    if (currentZipReader) {
+        try {
+            await currentZipReader.close();
+        } catch (e) {
+            console.warn('Error closing zip reader:', e);
+        }
+        currentZipReader = null;
+    }
+    for (let r of currentNestedZipReaders) {
+        try {
+            await r.close();
+        } catch (e) {
+            console.warn('Error closing nested zip reader:', e);
+        }
+    }
+    currentNestedZipReaders = [];
+}
+
 async function loadFileFromUrl(url, index) {
     try {
         activeFileIndex = index;
         renderFileList();
         
         showLoading('読込中...');
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Failed to fetch ${url}`);
+        parcels = [];
+        selectedParcelId = null;
+        hoveredParcelId = null;
         
-        const blob = await response.blob();
-        const file = new File([blob], url.split('/').pop());
-        await processFile(file);
+        if (url.endsWith('.zip')) {
+            await closeCurrentZipReaders();
+            
+            // Resolve relative url to absolute if needed, or pass directly
+            currentZipReader = new zip.ZipReader(new zip.HttpReader(url));
+            await parseZipReader(currentZipReader, url);
+        } else {
+            currentZipXmls = [];
+            mapSheetSelectContainer.style.display = 'none';
+            showLoading('XMLパース中...');
+            
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`Failed to fetch ${url}`);
+            const text = await response.text();
+            
+            setTimeout(() => {
+                try {
+                    parseMojXml(text);
+                } catch (err) {
+                    alert('XMLパースエラー: ' + err.message);
+                    hideLoading();
+                }
+            }, 50);
+        }
     } catch (err) {
         console.error(err);
         mapTitle.textContent = '読み込み失敗';
@@ -240,9 +345,9 @@ async function processFile(file) {
     try {
         if (file.name.endsWith('.zip')) {
             showLoading('ZIP展開中...');
-            const zip = await JSZip.loadAsync(file);
-            // Search for XML files inside ZIP (handles nested ZIPs)
-            await parseZipContents(zip);
+            await closeCurrentZipReaders();
+            currentZipReader = new zip.ZipReader(new zip.BlobReader(file));
+            await parseZipReader(currentZipReader, file);
         } else if (file.name.endsWith('.xml')) {
             currentZipXmls = [];
             mapSheetSelectContainer.style.display = 'none';
@@ -269,22 +374,39 @@ async function processFile(file) {
     }
 }
 
-// Recursively search zip for XML files
-async function parseZipContents(zip) {
+// Recursively search zip reader for XML files
+async function parseZipReader(zipReader, fileOrUrl) {
     let xmlFiles = [];
+    let entries;
+    try {
+        entries = await zipReader.getEntries();
+    } catch (err) {
+        console.error(err);
+        throw new Error('ZIPファイルの解析に失敗しました。ファイルが破損しているか、対応していない形式の可能性があります。');
+    }
     
     // Find all files in ZIP
-    for (let filename of Object.keys(zip.files)) {
+    for (let entry of entries) {
+        if (entry.directory) continue;
+        
+        const filename = entry.filename;
         if (filename.endsWith('.xml')) {
-            xmlFiles.push({ name: filename, file: zip.files[filename] });
+            xmlFiles.push({ name: filename, entry: entry });
         } else if (filename.endsWith('.zip')) {
             // Nested ZIP
-            const nestedZipBlob = await zip.files[filename].async('blob');
-            const nestedZip = await JSZip.loadAsync(nestedZipBlob);
-            for (let nestedFilename of Object.keys(nestedZip.files)) {
-                if (nestedFilename.endsWith('.xml')) {
-                    xmlFiles.push({ name: nestedFilename, file: nestedZip.files[nestedFilename] });
+            try {
+                const nestedZipBlob = await entry.getData(new zip.BlobWriter());
+                const nestedReader = new zip.ZipReader(new zip.BlobReader(nestedZipBlob));
+                currentNestedZipReaders.push(nestedReader);
+                
+                const nestedEntries = await nestedReader.getEntries();
+                for (let nestedEntry of nestedEntries) {
+                    if (!nestedEntry.directory && nestedEntry.filename.endsWith('.xml')) {
+                        xmlFiles.push({ name: nestedEntry.filename, entry: nestedEntry });
+                    }
                 }
+            } catch (err) {
+                console.warn('Failed to parse nested ZIP:', filename, err);
             }
         }
     }
@@ -293,26 +415,50 @@ async function parseZipContents(zip) {
         throw new Error('ZIPファイル内に地図XMLファイルが見つかりませんでした。');
     }
     
-    showLoading('地域名を読み込み中...');
-    
-    // Read names of all map sheets in parallel to boost speed
-    const promises = xmlFiles.map(async (fileEntry) => {
-        const xmlText = await fileEntry.file.async('text');
+    // Check cache
+    const cachedData = getCachedMapNames(fileOrUrl);
+    if (cachedData) {
+        currentZipXmls = xmlFiles.map(fileEntry => {
+            const cached = cachedData.find(c => c.filename === fileEntry.name);
+            const mapName = cached ? cached.mapName : '不明な地域';
+            const baseName = fileEntry.name.split('/').pop().replace('.xml', '');
+            return {
+                name: `${mapName} (${baseName})`,
+                entry: fileEntry.entry,
+                text: null
+            };
+        });
+    } else {
+        showLoading('地域名を読み込み中...');
+        const xmlFilesMetadata = [];
         
-        // Fast regex to extract region/map name
-        const mapNameMatch = xmlText.match(/<(?:[a-zA-Z0-9_]+:)?地図名>(.*?)<\/(?:[a-zA-Z0-9_]+:)?地図名>/);
-        const mapName = mapNameMatch ? mapNameMatch[1] : '不明な地域';
+        // Read names of all map sheets in parallel
+        const promises = xmlFiles.map(async (fileEntry) => {
+            const xmlText = await fileEntry.entry.getData(new zip.TextWriter());
+            
+            // Fast regex to extract region/map name
+            const mapNameMatch = xmlText.match(/<(?:[a-zA-Z0-9_]+:)?地図名>(.*?)<\/(?:[a-zA-Z0-9_]+:)?地図名>/);
+            const mapName = mapNameMatch ? mapNameMatch[1] : '不明な地域';
+            
+            xmlFilesMetadata.push({
+                filename: fileEntry.name,
+                mapName: mapName
+            });
+            
+            const baseName = fileEntry.name.split('/').pop().replace('.xml', '');
+            
+            return {
+                name: `${mapName} (${baseName})`,
+                entry: fileEntry.entry,
+                text: xmlText // Cache read XML text in memory since we already loaded it
+            };
+        });
         
-        const baseName = fileEntry.name.split('/').pop().replace('.xml', '');
+        currentZipXmls = await Promise.all(promises);
         
-        return {
-            name: `${mapName} (${baseName})`,
-            file: fileEntry.file
-            // text is not kept in memory to save RAM
-        };
-    });
-    
-    currentZipXmls = await Promise.all(promises);
+        // Save metadata to cache
+        setCachedMapNames(fileOrUrl, xmlFilesMetadata);
+    }
     
     // Clear and build the dropdown selector
     mapSheetSelect.innerHTML = '';
@@ -335,8 +481,11 @@ async function parseZipContents(zip) {
     showLoading('XML展開＆パース中...');
     setTimeout(async () => {
         try {
-            const xmlText = await currentZipXmls[0].file.async('text');
-            currentZipXmls[0].text = xmlText; // Cache first map
+            let xmlText = currentZipXmls[0].text;
+            if (!xmlText) {
+                xmlText = await currentZipXmls[0].entry.getData(new zip.TextWriter());
+                currentZipXmls[0].text = xmlText; // Cache first map
+            }
             parseMojXml(xmlText);
         } catch (err) {
             alert('XMLパースエラー: ' + err.message);
