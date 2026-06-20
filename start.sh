@@ -17,12 +17,14 @@ if lsof -Pi :$PORT -sTCP:LISTEN -t >/dev/null ; then
 else
     echo "=============================================="
     echo "🚀 地図XMLビューア サーバーを起動しています..."
-    echo "フォルダ: $DIR"
+    echo "フォルダ: $DIR/public"
     echo "ポート: $PORT"
     
     # Start python server in background
+    cd "$DIR/public"
     python3 -m http.server $PORT > /dev/null 2>&1 &
     SERVER_PID=$!
+    cd "$DIR"
     
     # Wait a moment for server to bind
     sleep 1
