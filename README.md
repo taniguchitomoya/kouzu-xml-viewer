@@ -45,9 +45,7 @@
 .
 ├── css/
 │   └── style.css            # アプリケーションのスタイルシート
-├── data/
-│   ├── sample_ochiai.xml    # テスト用のサンプル公図XMLデータ
-│   └── (13104-0111-2023.zip)# ダウンロードした大容量の地図データ（.gitignore対象）
+├── data/                    # 地図データ格納ディレクトリ（.gitignore対象）
 ├── js/
 │   ├── app.js               # 地図XMLのパースおよび描画ロジック
 │   └── jszip.min.js         # ZIPファイル解凍用ライブラリ
