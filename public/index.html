@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Noto+Sans+JP:wght@300;400;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style.css?v=1.2">
     <!-- Load zip.js for client-side zip file parsing with range requests support -->
     <script src="js/zip.min.js"></script>
 </head>
@@ -91,7 +91,8 @@
                     </div>
                 </div>
                 <div class="header-actions" style="display: flex; gap: 8px;">
-                    <button id="printModeBtn" class="btn btn-secondary">🖨️ 印刷用(白)</button>
+                    <button id="printExecuteBtn" class="btn btn-primary" style="display: none;">🖨️ 印刷実行</button>
+                    <button id="printModeBtn" class="btn btn-secondary">🖨️ 印刷モード</button>
                     <button id="resetViewBtn" class="btn btn-secondary">🌐 フィット表示</button>
                 </div>
             </header>

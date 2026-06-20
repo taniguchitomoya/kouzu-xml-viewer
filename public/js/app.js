@@ -8,6 +8,7 @@ let currentZipXmls = []; // Array of XML files extracted from loaded ZIP
 let activeLegendChome = null; // Filter state for chome highlighting
 let currentZipReader = null;
 let currentNestedZipReaders = [];
+let isPhysicalPrinting = false; // Flag to track when window.print() is active
 
 // Configure zip.js to run in the main thread (no workers) to prevent worker setup failures.
 if (window.zip) {
@@ -86,29 +87,39 @@ window.addEventListener('DOMContentLoaded', () => {
         printModeBtn.addEventListener('click', () => {
             document.body.classList.toggle('print-mode');
             updatePrintButtonLabel();
+            resizeAndDrawCanvasSync();
             buildLegend();
-            drawMap();
+        });
+    }
+
+    // Bind Print Execute button
+    const printExecuteBtn = document.getElementById('printExecuteBtn');
+    if (printExecuteBtn) {
+        printExecuteBtn.addEventListener('click', () => {
+            window.print();
         });
     }
     
     // Listen to physical print events
     let wasPrintModeBeforePrint = false;
     window.addEventListener('beforeprint', () => {
+        isPhysicalPrinting = true;
         wasPrintModeBeforePrint = document.body.classList.contains('print-mode');
         if (!wasPrintModeBeforePrint) {
             document.body.classList.add('print-mode');
             updatePrintButtonLabel();
             buildLegend();
-            drawMap();
         }
+        resizeAndDrawCanvasSync();
     });
     window.addEventListener('afterprint', () => {
+        isPhysicalPrinting = false;
         if (!wasPrintModeBeforePrint) {
             document.body.classList.remove('print-mode');
             updatePrintButtonLabel();
             buildLegend();
-            drawMap();
         }
+        resizeAndDrawCanvasSync();
     });
     
     // Bind Map Sheet dropdown change event
@@ -137,10 +148,10 @@ function updatePrintButtonLabel() {
     if (!printModeBtn) return;
     const isPrint = document.body.classList.contains('print-mode');
     if (isPrint) {
-        printModeBtn.textContent = '🌙 通常モード';
+        printModeBtn.textContent = '🚪 通常画面';
         printModeBtn.classList.add('active');
     } else {
-        printModeBtn.textContent = '🖨️ 印刷用(白)';
+        printModeBtn.textContent = '🖨️ 印刷モード';
         printModeBtn.classList.remove('active');
     }
 }
@@ -157,6 +168,16 @@ function setupResizeHandler() {
         }
     });
     resizeObserver.observe(viewportContainer);
+}
+
+// Synchronously resize and redraw the canvas (crucial for print rendering)
+function resizeAndDrawCanvasSync() {
+    if (viewportContainer && mapCanvas) {
+        const rect = viewportContainer.getBoundingClientRect();
+        mapCanvas.width = rect.width;
+        mapCanvas.height = rect.height;
+        drawMap();
+    }
 }
 
 // 1. Directory Scanning (Fetch files inside data/)
@@ -516,7 +537,7 @@ function parseMojXml(xmlText) {
     const cityName = cityNameEl ? cityNameEl.textContent : '';
     const crsName = crsEl ? crsEl.textContent : '任意座標系';
     
-    mapTitle.textContent = mapName;
+    mapTitle.textContent = mapName + '（法務省 登記所備付地図データ）';
     metaCrs.textContent = '座標系: ' + crsName;
     metaCity.textContent = '市区町村: ' + cityName + (cityCode ? ` (${cityCode})` : '');
     
@@ -713,15 +734,9 @@ function parseMojXml(xmlText) {
                 chome = match ? match[0] : 'その他';
             }
             
-            // Precompute centroid
+            // Precompute centroid using mathematical polygon centroid formula
             const geom = surfaces[shapeRef];
-            let sumX = 0, sumY = 0;
-            geom.exterior.forEach(pt => {
-                sumX += pt.x;
-                sumY += pt.y;
-            });
-            const centroidX = sumX / geom.exterior.length;
-            const centroidY = sumY / geom.exterior.length;
+            const centroid = calculatePolygonCentroid(geom.exterior);
             
             tempParcels.push({
                 id: id || `F-${i}`,
@@ -731,7 +746,7 @@ function parseMojXml(xmlText) {
                 type: typeValue,
                 chome: chome,
                 geometry: geom,
-                centroid: { x: centroidX, y: centroidY },
+                centroid: centroid,
                 ooaza: ooaza,
                 ooazaCode: ooazaCode,
                 chomeCode: chomeCode,
@@ -846,8 +861,8 @@ function drawMap() {
     
     // Draw all parcels
     parcels.forEach(p => {
-        const isSelected = p.id === selectedParcelId;
-        const isHovered = p.id === hoveredParcelId;
+        const isSelected = !isPhysicalPrinting && p.id === selectedParcelId;
+        const isHovered = !isPhysicalPrinting && p.id === hoveredParcelId;
         
         // Frustum culling check
         const bbox = p.geometry.bbox;
@@ -883,17 +898,17 @@ function drawMap() {
             ctx.strokeStyle = isPrint ? '#1d4ed8' : '#60a5fa';
             ctx.lineWidth = 2.5;
         } else if (isHovered) {
-            ctx.fillStyle = chomeColor.fill.replace('0.25', '0.4').replace('0.15', '0.3');
-            ctx.strokeStyle = chomeColor.stroke;
+            ctx.fillStyle = isPrint ? 'rgba(37, 99, 235, 0.12)' : chomeColor.fill.replace('0.25', '0.4').replace('0.15', '0.3');
+            ctx.strokeStyle = isPrint ? '#1d4ed8' : chomeColor.stroke;
             ctx.lineWidth = 2.0;
         } else {
             if (isDimmed) {
-                ctx.fillStyle = isPrint ? 'rgba(241, 245, 249, 0.3)' : 'rgba(30, 41, 59, 0.05)';
-                ctx.strokeStyle = isPrint ? 'rgba(203, 213, 225, 0.2)' : 'rgba(71, 85, 105, 0.1)';
+                ctx.fillStyle = isPrint ? '#ffffff' : 'rgba(30, 41, 59, 0.05)';
+                ctx.strokeStyle = isPrint ? 'rgba(15, 23, 42, 0.15)' : 'rgba(71, 85, 105, 0.1)';
                 ctx.lineWidth = 0.5;
             } else {
-                ctx.fillStyle = chomeColor.fill;
-                ctx.strokeStyle = chomeColor.stroke;
+                ctx.fillStyle = isPrint ? '#ffffff' : chomeColor.fill;
+                ctx.strokeStyle = isPrint ? '#0f172a' : chomeColor.stroke;
                 ctx.lineWidth = 1.0;
             }
         }
@@ -1498,4 +1513,117 @@ function calculateArea(exterior) {
         area -= exterior[j].x * exterior[i].y;
     }
     return Math.abs(area / 2.0);
+}
+
+// Calculate the true area centroid of a polygon
+function calculatePolygonCentroid(pts) {
+    const n = pts.length;
+    if (n === 0) return { x: 0, y: 0 };
+    
+    // Check if the polygon forms a closed loop
+    let isClosed = false;
+    if (n > 1 && pts[0].x === pts[n - 1].x && pts[0].y === pts[n - 1].y) {
+        isClosed = true;
+    }
+    
+    // We want the unique vertices (loop excludes identical final vertex)
+    const numUnique = isClosed ? n - 1 : n;
+    if (numUnique < 3) {
+        // Degenerate polygon (point or line), return average of unique points
+        let sumX = 0, sumY = 0;
+        for (let i = 0; i < numUnique; i++) {
+            sumX += pts[i].x;
+            sumY += pts[i].y;
+        }
+        return { x: sumX / numUnique, y: sumY / numUnique };
+    }
+    
+    let area = 0;
+    let cx = 0;
+    let cy = 0;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    
+    for (let i = 0; i < numUnique; i++) {
+        const p1 = pts[i];
+        const p2 = pts[(i + 1) % numUnique];
+        
+        // Track bounding box for grid sampling
+        if (p1.x < minX) minX = p1.x;
+        if (p1.x > maxX) maxX = p1.x;
+        if (p1.y < minY) minY = p1.y;
+        if (p1.y > maxY) maxY = p1.y;
+        
+        const factor = p1.x * p2.y - p2.x * p1.y;
+        area += factor;
+        cx += (p1.x + p2.x) * factor;
+        cy += (p1.y + p2.y) * factor;
+    }
+    
+    area = area / 2;
+    
+    // If area is zero or extremely tiny, fallback to bounding box center
+    if (Math.abs(area) < 1e-10) {
+        return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+    }
+    
+    cx = cx / (6 * area);
+    cy = cy / (6 * area);
+    const mathCentroid = { x: cx, y: cy };
+    
+    // Grid sampling to find the best internal point away from boundaries (for L-shaped/flag-shaped plots)
+    // Candidates include the mathematical centroid + a fixed 4x4 grid inside BBox (total 17 points, very lightweight)
+    const candidates = [mathCentroid];
+    const steps = 4;
+    const dx = (maxX - minX) / steps;
+    const dy = (maxY - minY) / steps;
+    
+    for (let i = 0; i < steps; i++) {
+        for (let j = 0; j < steps; j++) {
+            candidates.push({
+                x: minX + dx * (i + 0.5),
+                y: minY + dy * (j + 0.5)
+            });
+        }
+    }
+    
+    let bestCandidate = mathCentroid;
+    let maxDistSq = -1;
+    
+    // Helper to calculate squared distance from point to segment
+    function getDistanceToSegmentSq(pt, p1, p2) {
+        const x = pt.x, y = pt.y;
+        const x1 = p1.x, y1 = p1.y;
+        const x2 = p2.x, y2 = p2.y;
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        if (dx === 0 && dy === 0) {
+            return (x - x1) * (x - x1) + (y - y1) * (y - y1);
+        }
+        let t = ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy);
+        if (t < 0) t = 0;
+        else if (t > 1) t = 1;
+        const px = x1 + t * dx;
+        const py = y1 + t * dy;
+        return (x - px) * (x - px) + (y - py) * (y - py);
+    }
+    
+    for (const cand of candidates) {
+        if (isPointInPolygon(cand, pts)) {
+            // Calculate minimum squared distance to all polygon boundaries
+            let minDistSq = Infinity;
+            for (let k = 0; k < numUnique; k++) {
+                const distSq = getDistanceToSegmentSq(cand, pts[k], pts[(k + 1) % numUnique]);
+                if (distSq < minDistSq) {
+                    minDistSq = distSq;
+                }
+            }
+            
+            if (minDistSq > maxDistSq) {
+                maxDistSq = minDistSq;
+                bestCandidate = cand;
+            }
+        }
+    }
+    
+    return bestCandidate;
 }

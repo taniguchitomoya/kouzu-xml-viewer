@@ -638,28 +638,87 @@ body.print-mode .loading-overlay {
 }
 
 /* Print Mode overrides */
+.btn-primary {
+    background-color: var(--accent-color);
+    color: #ffffff;
+    border: 1px solid var(--accent-color);
+}
+
+.btn-primary:hover {
+    background-color: var(--accent-hover);
+    border-color: var(--accent-hover);
+}
+
+body.print-mode #printExecuteBtn {
+    display: inline-block !important;
+}
+
 #printModeBtn.active {
     background-color: var(--accent-color);
     color: #ffffff;
     border-color: var(--accent-color);
 }
 
-body.print-mode .map-header {
-    background-color: rgba(255, 255, 255, 0.9);
+body.print-mode .sidebar {
+    display: none !important;
+}
+
+body.print-mode .main-content {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+}
+
+body.print-mode .status-bar {
+    display: none !important;
 }
 
 body.print-mode .controls-overlay {
-    background-color: rgba(255, 255, 255, 0.9);
+    bottom: 40px;
+    right: 40px;
 }
 
-body.print-mode .hover-tooltip {
-    background-color: rgba(255, 255, 255, 0.95);
-    border-color: var(--accent-color);
-    color: var(--text-primary);
+body.print-mode .viewport-container {
+    border: 2px solid #0f172a !important;
+    margin: 0 24px 24px 24px;
+}
+
+/* Adjust Map Header during print mode to be clean and neat */
+body.print-mode .map-header {
+    background-color: #ffffff;
+    border-bottom: 1px solid #cbd5e1;
+    color: #0f172a;
+    padding: 16px 24px;
+}
+
+body.print-mode .map-metadata .meta-tag {
+    background-color: #f1f5f9;
+    color: #475569;
+    border: 1px solid #e2e8f0;
 }
 
 body.print-mode .legend-overlay {
     background-color: rgba(255, 255, 255, 0.95);
+    border: 1px solid #cbd5e1;
+    color: #0f172a;
+}
+
+body.print-mode .legend-overlay h3 {
+    color: #0f172a;
+    border-bottom: 1px solid #cbd5e1;
+}
+
+body.print-mode .legend-list li {
+    color: #334155;
+}
+
+body.print-mode .hover-tooltip {
+    background-color: rgba(255, 255, 255, 0.95) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-color) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
 }
 
 /* @media print for physical printing */
@@ -673,7 +732,7 @@ body.print-mode .legend-overlay {
         --border-color: #cccccc;
     }
     
-    .sidebar, .map-header, .controls-overlay, .status-bar, .legend-overlay {
+    .sidebar, .controls-overlay, .status-bar, .header-actions, .legend-overlay, .hover-tooltip {
         display: none !important;
     }
     
@@ -692,8 +751,29 @@ body.print-mode .legend-overlay {
         background-color: #ffffff !important;
     }
     
+    .map-header {
+        display: block !important;
+        background-color: #ffffff !important;
+        border-bottom: 1px solid #cccccc !important;
+        color: #000000 !important;
+        padding: 10px 0 !important;
+    }
+    
+    .map-metadata .meta-tag {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        border: 1px solid #cccccc !important;
+    }
+    
+    .viewport-container {
+        display: block !important;
+        border: 2px solid #000000 !important;
+        margin: 10px 20px 20px 20px !important;
+        height: calc(100% - 100px) !important;
+    }
+    
     #mapCanvas {
         width: 100%;
-        height: 100%;
+        height: 100% !important;
     }
 }
